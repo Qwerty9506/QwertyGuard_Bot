@@ -95,14 +95,14 @@ async def unban_unmute_task(bot: Bot, chat_id: int, user_id: int, first_name: st
     except Exception as e:
         print(f"Ошибка снятия наказания: {e}")
 
+# --- ИЗМЕНЕНИЯ ЗДЕСЬ (Удаление сообщений revoke_messages=True) ---
 async def captcha_timer(bot: Bot, chat_id: int, user_id: int, msg_id: int):
     await asyncio.sleep(10)
     u_cache = spam_cache.get(chat_id, {}).get(user_id)
     if u_cache and u_cache.get("pending"):
         try:
-            await bot.ban_chat_member(chat_id, user_id)
-            await asyncio.sleep(1)
-            await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
+            # revoke_messages=True удаляет все сообщения юзера!
+            await bot.ban_chat_member(chat_id, user_id, revoke_messages=True)
             await bot.delete_message(chat_id, msg_id)
         except: pass
         spam_cache[chat_id].pop(user_id, None)
@@ -212,7 +212,7 @@ async def handle_group_msgs(message: Message, bot: Bot):
             except: pass
             return
 
-    # --- УЛУЧШЕННЫЙ АНТИСПАМ ---
+    # --- УЛУЧШЕННЫЙ АНТИСПАМ (10 сообщ / 6 сек) ---
     if spam_protect:
         if chat_id not in spam_cache: spam_cache[chat_id] = {}
         now = time.time()
@@ -226,7 +226,8 @@ async def handle_group_msgs(message: Message, bot: Bot):
             await message.delete()
             return
 
-        u_cache["history"] = [t for t in u_cache["history"] if now - t <= 10]
+        # ИЗМЕНЕНИЯ ЗДЕСЬ: Проверка за последние 6 секунд
+        u_cache["history"] = [t for t in u_cache["history"] if now - t <= 6]
         u_cache["history"].append(now)
 
         if text.lower() == u_cache["text"]:
@@ -235,12 +236,14 @@ async def handle_group_msgs(message: Message, bot: Bot):
             u_cache["text"] = text.lower()
             u_cache["dupes"] = 1
 
-        if u_cache["dupes"] >= 3 or len(u_cache["history"]) >= 10:
+        # ИЗМЕНЕНИЯ ЗДЕСЬ: 10 сообщений или 4 дубля
+        if u_cache["dupes"] >= 4 or len(u_cache["history"]) >= 10:
             await message.delete()
             if u_cache["verified"]:
-                await bot.ban_chat_member(chat_id, user_id)
+                # ИЗМЕНЕНИЯ ЗДЕСЬ: Бан + Удаление сообщений за повторный спам
+                await bot.ban_chat_member(chat_id, user_id, revoke_messages=True)
                 spam_cache[chat_id].pop(user_id, None)
-                await message.answer(f"⛔️ Пользователь [{message.from_user.first_name}](tg://user?id={user_id}) заблокирован за продолжение спама.", parse_mode="Markdown")
+                await message.answer(f"⛔️ Пользователь [{message.from_user.first_name}](tg://user?id={user_id}) заблокирован за продолжение спама. Его сообщения удалены.", parse_mode="Markdown")
             else:
                 u_cache["pending"] = True
                 await bot.restrict_chat_member(chat_id, user_id, permissions=ChatPermissions(can_send_messages=False))
@@ -249,8 +252,8 @@ async def handle_group_msgs(message: Message, bot: Bot):
                     [InlineKeyboardButton(text="🤖 Я не бот", callback_data=f"captcha_{user_id}")]
                 ])
                 msg = await message.answer(
-                    f"⚠️ [{message.from_user.first_name}](tg://user?id={user_id}), сработала защита от спама.\n\n"
-                    f"Пожалуйста, подтвердите, что вы живой человек. У вас есть 10 секунд.",
+                    f"⚠️ [{message.from_user.first_name}](tg://user?id={user_id}), сработала защита от спама (слишком быстро).\n\n"
+                    f"Подтвердите, что вы живой человек. У вас есть 10 секунд до **БАНА**.",
                     reply_markup=kb, parse_mode="Markdown"
                 )
                 asyncio.create_task(captcha_timer(bot, chat_id, user_id, msg.message_id))
@@ -260,7 +263,7 @@ async def handle_group_msgs(message: Message, bot: Bot):
 @router.callback_query(F.data.startswith("captcha_"))
 async def captcha_verify(call: CallbackQuery, bot: Bot):
     target_id = int(call.data.split("_")[1])
-    if call.from_user.id != target_id:
+    if call.fromuser.id != target_id:
         return await call.answer("Эта кнопка не для вас!", show_alert=True)
     
     chat_id = call.message.chat.id
@@ -280,7 +283,7 @@ async def captcha_verify(call: CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("check_"))
 async def check_invites(call: CallbackQuery):
     target_id = int(call.data.split("_")[1])
-    if call.from_user.id != target_id:
+    if call.fromuser.id != target_id:
         return await call.answer("Это не ваша кнопка!", show_alert=True)
         
     settings = await db.get_group_settings(call.message.chat.id)
