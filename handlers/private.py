@@ -79,21 +79,13 @@ async def manage_group(call: CallbackQuery, state: FSMContext):
             group_title = g_title
             break
 
+    # КНОПКА МОДЕРАЦИИ УБРАНА ИЗ МЕНЮ ПОЛНОСТЬЮ
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Колл. обяз. приглашений", callback_data="settings_invites")],
         [InlineKeyboardButton(text="🛡 Защита от спама", callback_data="settings_spam")],
-        [InlineKeyboardButton(text="👮‍♂️ Модерация группы", callback_data="settings_moderation")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")]
     ])
     await call.message.edit_text(f"⚙️ Управление группой\n[{group_title}](https://t.me/c/{clean_id}/1)", reply_markup=kb, parse_mode="Markdown")
-
-@router.callback_query(F.data == "settings_moderation")
-async def settings_moderation(call: CallbackQuery, state: FSMContext):
-    group_id = (await state.get_data()).get("current_group")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"manage_{group_id}")]
-    ])
-    await call.message.edit_text("👮‍♂️ **Модерация группы**\n\nРаздел в разработке. Здесь скоро будут настройки прав модераторов!", reply_markup=kb, parse_mode="Markdown")
 
 @router.callback_query(F.data == "settings_invites")
 async def settings_invites(call: CallbackQuery, state: FSMContext):
@@ -187,8 +179,8 @@ async def settings_spam(call: CallbackQuery, state: FSMContext):
         "**Как это работает:**\n"
         "• **10 сообщений за 6 секунд** ➔ Проверка (Капча).\n"
         "• **3 одинаковых сообщения подряд** ➔ Проверка (Капча).\n"
-        "• **Не прошел проверку (12 сек)** ➔ Бан и удаление спама за последние 5 минут.\n"
-        "• **Прошел, но снова спамит** ➔ Бан и удаление спама за последние 5 минут.\n\n"
+        "• **Не прошел проверку (12 сек)** ➔ Бан и удаление спама.\n"
+        "• **Прошел, но снова спамит** ➔ Бан и удаление спама.\n\n"
         f"Состояние: **{status_text}**"
     )
     await call.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
