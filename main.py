@@ -18,18 +18,14 @@ async def start_web_server():
     print(f"Web server started on port {config.WEB_PORT}")
 
 async def main():
-    # Инициализация БД
     await db.init_db()
 
-    # Настройка бота
     bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
 
-    # Подключение роутеров (модулей)
     dp.include_router(private.router)
     dp.include_router(group.router)
 
-    # Запускаем веб-сервер для Render и бота одновременно
     await asyncio.gather(
         start_web_server(),
         dp.start_polling(bot)
