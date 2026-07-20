@@ -39,26 +39,7 @@ async def init_db():
                 PRIMARY KEY (group_id, user_id)
             )
         """)
-        # Новая таблица для языков
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS bot_users (
-                user_id INTEGER PRIMARY KEY,
-                lang TEXT DEFAULT 'ru'
-            )
-        """)
         await db.commit()
-
-# --- ФУНКЦИИ ЯЗЫКА ---
-async def set_user_lang(user_id: int, lang: str):
-    async with aiosqlite.connect("bot_base.db") as db:
-        await db.execute("INSERT OR REPLACE INTO bot_users (user_id, lang) VALUES (?, ?)", (user_id, lang))
-        await db.commit()
-
-async def get_user_lang(user_id: int) -> str:
-    async with aiosqlite.connect("bot_base.db") as db:
-        async with db.execute("SELECT lang FROM bot_users WHERE user_id = ?", (user_id,)) as cursor:
-            res = await cursor.fetchone()
-            return res[0] if res else 'ru'
 
 # --- БАЗОВЫЕ ФУНКЦИИ ГРУППЫ ---
 async def add_group(group_id: int, title: str, owner_id: int):
@@ -134,7 +115,7 @@ async def get_available_users(group_id: int):
         async with db.execute("""
             SELECT user_id, first_name, username FROM group_users 
             WHERE group_id = ? AND user_id NOT IN (SELECT user_id FROM moderators WHERE group_id = ?)
-            ORDER BY user_id DESC
+            ORDER BY user_id DESC LIMIT 30
         """, (group_id, group_id)) as cur:
             return await cur.fetchall()
 
