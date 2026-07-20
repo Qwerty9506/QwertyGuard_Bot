@@ -46,7 +46,12 @@ async def init_db():
 # --- БАЗОВЫЕ ФУНКЦИИ ГРУППЫ ---
 async def add_group(group_id: int, title: str, owner_id: int):
     async with aiosqlite.connect("bot_base.db") as db:
-        await db.execute("INSERT OR REPLACE INTO groups (group_id, title, owner_id) VALUES (?, ?, ?)", (group_id, title, owner_id))
+        # ИСПРАВЛЕНО: ON CONFLICT вместо REPLACE, чтобы настройки не сбрасывались
+        await db.execute("""
+            INSERT INTO groups (group_id, title, owner_id) 
+            VALUES (?, ?, ?) 
+            ON CONFLICT(group_id) DO UPDATE SET title = excluded.title
+        """, (group_id, title, owner_id))
         await db.commit()
 
 async def get_user_groups(user_id: int):
@@ -66,7 +71,8 @@ async def update_req_invites(group_id: int, count: int):
 
 async def toggle_spam(group_id: int):
     async with aiosqlite.connect("bot_base.db") as db:
-        await db.execute("UPDATE groups SET spam_protect = NOT spam_protect WHERE group_id = ?", (group_id,))
+        # ИСПРАВЛЕНО: Математическое переключение 1 - spam_protect для надежности в SQLite
+        await db.execute("UPDATE groups SET spam_protect = 1 - spam_protect WHERE group_id = ?", (group_id,))
         await db.commit()
 
 # --- ФУНКЦИИ ДЛЯ ИНВАЙТОВ ---
