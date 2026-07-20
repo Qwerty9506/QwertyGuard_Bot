@@ -1,48 +1,39 @@
-# main.py
 import asyncio
-import logging
-import os
-from aiohttp import web
 from aiogram import Bot, Dispatcher
-from config import BOT_TOKEN, WEB_PORT
-from database import init_db
+from aiohttp import web
+import config
+import database as db
 from handlers import private, group
 
-logging.basicConfig(level=logging.INFO)
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
 
-# --- Фиктивный веб-сервер для прохождения проверок Render ---
-async def handle(request):
-    return web.Response(text="QwertyGuard Bot is running and healthy!")
-
-async def web_server():
+async def start_web_server():
     app = web.Application()
-    app.router.add_get('/', handle)
+    app.router.add_get('/', handle_ping)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', WEB_PORT)
+    site = web.TCPSite(runner, '0.0.0.0', config.WEB_PORT)
     await site.start()
-    print(f"=== Web server started on port {WEB_PORT} (Render Health Check) ===")
-# -------------------------------------------------------------
+    print(f"Web server started on port {config.WEB_PORT}")
 
 async def main():
-    # Инициализируем базу данных
-    init_db()
-    
-    bot = Bot(token=BOT_TOKEN)
+    # Инициализация БД
+    await db.init_db()
+
+    # Настройка бота
+    bot = Bot(token=config.BOT_TOKEN)
     dp = Dispatcher()
 
-    # Подключаем роутеры
+    # Подключение роутеров (модулей)
     dp.include_router(private.router)
     dp.include_router(group.router)
 
-    # Запускаем фоновый веб-сервер для Render
-    asyncio.create_task(web_server())
-
-    print("=== QwertyGuard Бот успешно запущен! ===")
-    
-    # Сбрасываем старые вебхуки (если были), чтобы избежать ошибок с Polling
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    # Запускаем веб-сервер для Render и бота одновременно
+    await asyncio.gather(
+        start_web_server(),
+        dp.start_polling(bot)
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
