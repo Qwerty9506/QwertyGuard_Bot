@@ -12,42 +12,50 @@ class BotConfig(StatesGroup): waiting_for_invite_count = State()
 BOT_USERNAME = "QwertyGuard_Bot" # <--- ВПИШИ ЮЗЕРНЕЙМ БОТА БЕЗ @
 ADD_URL = f"https://t.me/{BOT_USERNAME}?startgroup=true&admin=restrict_members+delete_messages+ban_users+invite_users+pin_messages"
 
+async def get_main_menu(user_id: int):
+    groups = await db.get_user_groups(user_id)
+    kb = []
+    if groups:
+        kb = [[InlineKeyboardButton(text=f"👥 {g_title}", callback_data=f"manage_{g_id}")] for g_id, g_title in groups]
+        kb.append([InlineKeyboardButton(text="🔄 Обновить список", callback_data="refresh_main")])
+        kb.append([InlineKeyboardButton(text="➕ Добавить в группу", url=ADD_URL)])
+        return "Ваши группы:", InlineKeyboardMarkup(inline_keyboard=kb)
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить список", callback_data="refresh_main")],
+            [InlineKeyboardButton(text="➕ Добавить в группу", url=ADD_URL)]
+        ])
+        return "Я бот-модератор. Добавь меня в группу!", kb
+
 @router.message(CommandStart(), F.chat.type == "private")
 async def start_cmd(message: Message, state: FSMContext):
     data = await state.get_data()
     
-    # 1. Удаляем сам /start, который отправил пользователь
-    try:
-        await message.delete()
-    except:
-        pass
+    try: await message.delete()
+    except: pass
 
-    # 2. Удаляем прошлое сообщение-меню от бота (если оно было)
     last_bot_msg = data.get("last_bot_msg")
     if last_bot_msg:
-        try:
-            await message.chat.delete_message(last_bot_msg)
-        except:
-            pass
+        try: await message.chat.delete_message(last_bot_msg)
+        except: pass
 
     await state.clear()
-    
-    groups = await db.get_user_groups(message.from_user.id)
-    
-    if groups:
-        kb = [[InlineKeyboardButton(text=f"👥 {g_title}", callback_data=f"manage_{g_id}")] for g_id, g_title in groups]
-        kb.append([InlineKeyboardButton(text="➕ Добавить в новую группу", url=ADD_URL)])
-        msg = await message.answer("Ваши группы:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
-    else:
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➕ Добавить в группу", url=ADD_URL)]])
-        msg = await message.answer("Я бот-модератор. Добавь меня в группу!", reply_markup=kb)
+    text, markup = await get_main_menu(message.from_user.id)
+    msg = await message.answer(text, reply_markup=markup)
         
-    # 3. Сохраняем ID нового сообщения бота
     await state.update_data(last_bot_msg=msg.message_id)
+
+@router.callback_query(F.data == "refresh_main")
+async def refresh_main(call: CallbackQuery):
+    text, markup = await get_main_menu(call.from_user.id)
+    try:
+        await call.message.edit_text(text, reply_markup=markup)
+        await call.answer("Список групп успешно обновлен!")
+    except Exception:
+        await call.answer("Изменений в списке групп нет.", show_alert=False)
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(call: CallbackQuery, state: FSMContext):
-    # Сохраняем ID сообщения перед очисткой состояния
     data = await state.get_data()
     last_bot_msg = data.get("last_bot_msg")
     
@@ -55,10 +63,8 @@ async def back_to_main(call: CallbackQuery, state: FSMContext):
     if last_bot_msg:
         await state.update_data(last_bot_msg=last_bot_msg)
         
-    groups = await db.get_user_groups(call.from_user.id)
-    kb = [[InlineKeyboardButton(text=f"👥 {g_title}", callback_data=f"manage_{g_id}")] for g_id, g_title in groups]
-    kb.append([InlineKeyboardButton(text="➕ Добавить в группу", url=ADD_URL)])
-    await call.message.edit_text("Ваши группы:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    text, markup = await get_main_menu(call.from_user.id)
+    await call.message.edit_text(text, reply_markup=markup)
 
 @router.callback_query(F.data.startswith("manage_"))
 async def manage_group(call: CallbackQuery, state: FSMContext):
@@ -93,7 +99,6 @@ async def process_invite_count(message: Message, state: FSMContext):
     group_id, msg_to_edit = data.get("current_group"), data.get("msg_to_edit")
     await asyncio.sleep(1.5)
     
-    # Удаляем сообщение с цифрой от пользователя
     try: await message.delete()
     except: pass
     
