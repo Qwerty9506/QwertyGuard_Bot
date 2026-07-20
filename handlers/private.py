@@ -9,7 +9,7 @@ import database as db
 router = Router()
 class BotConfig(StatesGroup): waiting_for_invite_count = State()
 
-BOT_USERNAME = "ТВОЙ_БОТ" # <--- ВПИШИ ЮЗЕРНЕЙМ БОТА БЕЗ @
+BOT_USERNAME = "QwertyGuard_Bot" # <--- ВПИШИ ЮЗЕРНЕЙМ БОТА БЕЗ @
 # Ссылка с запросом прав админа
 ADD_URL = f"https://t.me/{BOT_USERNAME}?startgroup=true&admin=restrict_members+delete_messages+ban_users+invite_users+pin_messages"
 
