@@ -198,19 +198,33 @@ async def handle_group_msgs(message: Message, bot: Bot):
             time_text = format_time_text(time_sec)
             
             msg = None
+           # ... (остальной код до модераторских команд) ...
+
             if cmd == "бан":
-                await bot.ban_chat_member(chat_id, target_id, until_date=until)
+                # Добавлен параметр revoke_messages=True для удаления сообщений пользователя
+                await bot.ban_chat_member(chat_id, target_id, until_date=until, revoke_messages=True)
                 msg = await message.answer(f"🔨 Участник {target_link} забанен\nМодератор: {mod_link}\nВремя: {time_text}\nПричина: {reason}", parse_mode="Markdown")
                 if time_sec > 0: asyncio.create_task(unban_unmute_task(bot, chat_id, target_id, target_name, time_sec, "бана"))
+                
             elif cmd == "мут":
                 await bot.restrict_chat_member(chat_id, target_id, permissions=ChatPermissions(can_send_messages=False), until_date=until)
                 msg = await message.answer(f"🤐 Участник {target_link} замучен\nМодератор: {mod_link}\nВремя: {time_text}\nПричина: {reason}", parse_mode="Markdown")
                 if time_sec > 0: asyncio.create_task(unban_unmute_task(bot, chat_id, target_id, target_name, time_sec, "мута"))
+                
             elif cmd == "кик":
                 await bot.ban_chat_member(chat_id, target_id)
                 await asyncio.sleep(1)
                 await bot.unban_chat_member(chat_id, target_id, only_if_banned=True)
+                
+                # Если кик был через reply, удаляем сообщение, на которое ответили
+                if message.reply_to_message:
+                    try:
+                        await message.reply_to_message.delete()
+                    except Exception:
+                        pass
+                        
                 msg = await message.answer(f"👢 Участник {target_link} кикнут\nМодератор: {mod_link}\nПричина: {reason}", parse_mode="Markdown")
+                
             elif cmd in ["разбан", "размут"]:
                 await bot.restrict_chat_member(chat_id, target_id, permissions=UNMUTE_PERMS)
                 action_text = "разбанен" if cmd == "разбан" else "размучен"
@@ -219,6 +233,7 @@ async def handle_group_msgs(message: Message, bot: Bot):
             if msg: asyncio.create_task(delete_msg_after(bot, chat_id, msg.message_id, 15))
             return
 
+# ... (продолжение функции) ...
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         if member.status in [ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR]: return
