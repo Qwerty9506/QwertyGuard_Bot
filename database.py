@@ -20,7 +20,6 @@ async def init_db():
                 PRIMARY KEY (user_id, group_id)
             )
         """)
-        # Таблица для отслеживания всех участников чата
         await db.execute("""
             CREATE TABLE IF NOT EXISTS group_users (
                 group_id INTEGER,
@@ -30,7 +29,6 @@ async def init_db():
                 PRIMARY KEY (group_id, user_id)
             )
         """)
-        # Таблица для кастомных модераторов
         await db.execute("""
             CREATE TABLE IF NOT EXISTS moderators (
                 group_id INTEGER,
@@ -41,12 +39,30 @@ async def init_db():
                 PRIMARY KEY (group_id, user_id)
             )
         """)
+        # Новая таблица для языков
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bot_users (
+                user_id INTEGER PRIMARY KEY,
+                lang TEXT DEFAULT 'ru'
+            )
+        """)
         await db.commit()
+
+# --- ФУНКЦИИ ЯЗЫКА ---
+async def set_user_lang(user_id: int, lang: str):
+    async with aiosqlite.connect("bot_base.db") as db:
+        await db.execute("INSERT OR REPLACE INTO bot_users (user_id, lang) VALUES (?, ?)", (user_id, lang))
+        await db.commit()
+
+async def get_user_lang(user_id: int) -> str:
+    async with aiosqlite.connect("bot_base.db") as db:
+        async with db.execute("SELECT lang FROM bot_users WHERE user_id = ?", (user_id,)) as cursor:
+            res = await cursor.fetchone()
+            return res[0] if res else 'ru'
 
 # --- БАЗОВЫЕ ФУНКЦИИ ГРУППЫ ---
 async def add_group(group_id: int, title: str, owner_id: int):
     async with aiosqlite.connect("bot_base.db") as db:
-        # ИСПРАВЛЕНО: ON CONFLICT вместо REPLACE, чтобы настройки не сбрасывались
         await db.execute("""
             INSERT INTO groups (group_id, title, owner_id) 
             VALUES (?, ?, ?) 
@@ -71,7 +87,6 @@ async def update_req_invites(group_id: int, count: int):
 
 async def toggle_spam(group_id: int):
     async with aiosqlite.connect("bot_base.db") as db:
-        # ИСПРАВЛЕНО: Математическое переключение 1 - spam_protect для надежности в SQLite
         await db.execute("UPDATE groups SET spam_protect = 1 - spam_protect WHERE group_id = ?", (group_id,))
         await db.commit()
 
@@ -119,7 +134,7 @@ async def get_available_users(group_id: int):
         async with db.execute("""
             SELECT user_id, first_name, username FROM group_users 
             WHERE group_id = ? AND user_id NOT IN (SELECT user_id FROM moderators WHERE group_id = ?)
-            ORDER BY user_id DESC LIMIT 30
+            ORDER BY user_id DESC
         """, (group_id, group_id)) as cur:
             return await cur.fetchall()
 

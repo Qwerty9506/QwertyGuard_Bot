@@ -86,22 +86,26 @@ async def unban_unmute_task(bot: Bot, chat_id: int, user_id: int, first_name: st
     try:
         if action == "бана":
             await bot.unban_chat_member(chat_id, user_id, only_if_banned=True)
-            text_msg = f"[{first_name}](tg://user?id={user_id}) Время бана окончено, доступ открыт."
+            text_msg = f"[{first_name}](tg://user?id={user_id}) Время бана окончено."
         elif action == "мута":
             await bot.restrict_chat_member(chat_id, user_id, permissions=UNMUTE_PERMS)
-            text_msg = f"[{first_name}](tg://user?id={user_id}) Время мута окончено, вы можете писать."
-        
+            text_msg = f"[{first_name}](tg://user?id={user_id}) Время мута окончено."
         await bot.send_message(chat_id, text_msg, parse_mode="Markdown")
-    except Exception as e:
-        print(f"Ошибка снятия наказания: {e}")
+    except: pass
 
-# --- ИЗМЕНЕНИЯ ЗДЕСЬ (Удаление сообщений revoke_messages=True) ---
+async def delete_user_history(bot: Bot, chat_id: int, u_cache: dict):
+    # Удаление всех сообщений за последние 5 минут
+    for mid, _ in u_cache.get("all_msgs", []):
+        try: await bot.delete_message(chat_id, mid)
+        except: pass
+
 async def captcha_timer(bot: Bot, chat_id: int, user_id: int, msg_id: int):
-    await asyncio.sleep(10)
+    # Изменено время ожидания на 12 секунд
+    await asyncio.sleep(12)
     u_cache = spam_cache.get(chat_id, {}).get(user_id)
     if u_cache and u_cache.get("pending"):
         try:
-            # revoke_messages=True удаляет все сообщения юзера!
+            await delete_user_history(bot, chat_id, u_cache)
             await bot.ban_chat_member(chat_id, user_id, revoke_messages=True)
             await bot.delete_message(chat_id, msg_id)
         except: pass
@@ -109,10 +113,8 @@ async def captcha_timer(bot: Bot, chat_id: int, user_id: int, msg_id: int):
 
 @router.message(CommandStart())
 async def group_start_cmd(message: Message):
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    try: await message.delete()
+    except: pass
 
 @router.message(F.new_chat_members)
 async def on_user_join(message: Message, bot: Bot):
@@ -140,7 +142,6 @@ async def handle_group_msgs(message: Message, bot: Bot):
     if not settings: return
     req_invites, spam_protect = settings
 
-    # --- МОДЕРАЦИЯ ---
     cmd_info = parse_mod_command(text)
     if cmd_info:
         cmd, target_username, target_id_parsed, time_sec, reason = cmd_info
@@ -157,7 +158,7 @@ async def handle_group_msgs(message: Message, bot: Bot):
             if user_data:
                 target_id, target_name = user_data
             else:
-                await message.answer(f"Пользователь @{target_username} не найден. Он должен написать хотя бы одно сообщение.")
+                await message.answer(f"Пользователь @{target_username} не найден.")
                 return
                 
         if target_id:
@@ -171,21 +172,20 @@ async def handle_group_msgs(message: Message, bot: Bot):
             
             if cmd == "бан":
                 await bot.ban_chat_member(chat_id, target_id, until_date=until)
-                await message.answer(f"🔨 Участник {target_link} забанен\nМодератор: {mod_link}\nВремя: {time_text}\nПричина: {reason}", parse_mode="Markdown")
+                await message.answer(f"🔨 Участник {target_link} забанен\nМодератор: {mod_link}", parse_mode="Markdown")
                 if time_sec > 0: asyncio.create_task(unban_unmute_task(bot, chat_id, target_id, target_name, time_sec, "бана"))
             elif cmd == "мут":
                 await bot.restrict_chat_member(chat_id, target_id, permissions=ChatPermissions(can_send_messages=False), until_date=until)
-                await message.answer(f"🤐 Участник {target_link} замучен\nМодератор: {mod_link}\nВремя: {time_text}\nПричина: {reason}", parse_mode="Markdown")
+                await message.answer(f"🤐 Участник {target_link} замучен\nМодератор: {mod_link}", parse_mode="Markdown")
                 if time_sec > 0: asyncio.create_task(unban_unmute_task(bot, chat_id, target_id, target_name, time_sec, "мута"))
             elif cmd == "кик":
                 await bot.ban_chat_member(chat_id, target_id)
                 await asyncio.sleep(1)
                 await bot.unban_chat_member(chat_id, target_id, only_if_banned=True)
-                await message.answer(f"👢 Участник {target_link} кикнут\nМодератор: {mod_link}\nПричина: {reason}", parse_mode="Markdown")
+                await message.answer(f"👢 Участник {target_link} кикнут\nМодератор: {mod_link}", parse_mode="Markdown")
             elif cmd in ["разбан", "размут"]:
                 await bot.restrict_chat_member(chat_id, target_id, permissions=UNMUTE_PERMS)
-                action_text = "разбанен" if cmd == "разбан" else "размучен"
-                await message.answer(f"✅ Участник {target_link} был {action_text}\nМодератор: {mod_link}", parse_mode="Markdown")
+                await message.answer(f"✅ Участник {target_link} разблокирован\nМодератор: {mod_link}", parse_mode="Markdown")
             return
 
     try:
@@ -193,7 +193,6 @@ async def handle_group_msgs(message: Message, bot: Bot):
         if member.status in [ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR]: return
     except: pass
 
-    # --- ПРОВЕРКА ИНВАЙТОВ ---
     if req_invites > 0:
         current_invites, is_allowed = await db.get_user_invites(user_id, chat_id)
         if not is_allowed and current_invites < req_invites:
@@ -202,23 +201,18 @@ async def handle_group_msgs(message: Message, bot: Bot):
                 [InlineKeyboardButton(text="✅ Я добавил", callback_data=f"check_{user_id}")],
                 [InlineKeyboardButton(text="🔓 Отпустить", callback_data=f"release_{user_id}")]
             ])
-            msg = await message.answer(
-                f"[{message.from_user.first_name}](tg://user?id={user_id}), вам нельзя писать в группе!\n\n"
-                f"Для получения доступа нужно добавить {req_invites} {plural_friends(req_invites)}.",
-                reply_markup=kb, parse_mode="Markdown"
-            )
+            msg = await message.answer(f"[{message.from_user.first_name}](tg://user?id={user_id}), вам нельзя писать!\nДобавьте {req_invites} {plural_friends(req_invites)}.", reply_markup=kb, parse_mode="Markdown")
             await asyncio.sleep(20)
             try: await msg.delete()
             except: pass
             return
 
-    # --- УЛУЧШЕННЫЙ АНТИСПАМ (10 сообщ / 6 сек) ---
     if spam_protect:
         if chat_id not in spam_cache: spam_cache[chat_id] = {}
         now = time.time()
         
         if user_id not in spam_cache[chat_id]:
-            spam_cache[chat_id][user_id] = {"text": text.lower(), "dupes": 0, "history": [], "verified": False, "pending": False}
+            spam_cache[chat_id][user_id] = {"text": "", "dupes": 0, "history": [], "all_msgs": [], "verified": False, "pending": False}
             
         u_cache = spam_cache[chat_id][user_id]
 
@@ -226,24 +220,27 @@ async def handle_group_msgs(message: Message, bot: Bot):
             await message.delete()
             return
 
-        # ИЗМЕНЕНИЯ ЗДЕСЬ: Проверка за последние 6 секунд
+        # Сохранение всех сообщений для удаления за последние 5 минут (300 сек)
+        u_cache["all_msgs"].append((message.message_id, now))
+        u_cache["all_msgs"] = [(mid, t) for mid, t in u_cache["all_msgs"] if now - t <= 300]
+
         u_cache["history"] = [t for t in u_cache["history"] if now - t <= 6]
         u_cache["history"].append(now)
 
-        if text.lower() == u_cache["text"]:
+        if text.lower() == u_cache["text"] and text.strip() != "":
             u_cache["dupes"] += 1
         else:
             u_cache["text"] = text.lower()
             u_cache["dupes"] = 1
 
-        # ИЗМЕНЕНИЯ ЗДЕСЬ: 10 сообщений или 4 дубля
-        if u_cache["dupes"] >= 4 or len(u_cache["history"]) >= 10:
+        # Спам если: 10 сообщ за 6 сек ИЛИ 3 одинаковых сообщения подряд
+        if len(u_cache["history"]) >= 10 or u_cache["dupes"] >= 3:
             await message.delete()
             if u_cache["verified"]:
-                # ИЗМЕНЕНИЯ ЗДЕСЬ: Бан + Удаление сообщений за повторный спам
+                await delete_user_history(bot, chat_id, u_cache)
                 await bot.ban_chat_member(chat_id, user_id, revoke_messages=True)
                 spam_cache[chat_id].pop(user_id, None)
-                await message.answer(f"⛔️ Пользователь [{message.from_user.first_name}](tg://user?id={user_id}) заблокирован за продолжение спама. Его сообщения удалены.", parse_mode="Markdown")
+                await message.answer(f"⛔️ [{message.from_user.first_name}](tg://user?id={user_id}) заблокирован за продолжение спама.", parse_mode="Markdown")
             else:
                 u_cache["pending"] = True
                 await bot.restrict_chat_member(chat_id, user_id, permissions=ChatPermissions(can_send_messages=False))
@@ -252,19 +249,18 @@ async def handle_group_msgs(message: Message, bot: Bot):
                     [InlineKeyboardButton(text="🤖 Я не бот", callback_data=f"captcha_{user_id}")]
                 ])
                 msg = await message.answer(
-                    f"⚠️ [{message.from_user.first_name}](tg://user?id={user_id}), сработала защита от спама (слишком быстро).\n\n"
-                    f"Подтвердите, что вы живой человек. У вас есть 10 секунд до **БАНА**.",
+                    f"⚠️ [{message.from_user.first_name}](tg://user?id={user_id}), сработала защита.\n"
+                    f"Подтвердите, что вы человек. У вас 12 секунд до **БАНА**.",
                     reply_markup=kb, parse_mode="Markdown"
                 )
                 asyncio.create_task(captcha_timer(bot, chat_id, user_id, msg.message_id))
             return
 
-# --- ОБРАБОТЧИКИ КНОПОК ---
 @router.callback_query(F.data.startswith("captcha_"))
 async def captcha_verify(call: CallbackQuery, bot: Bot):
     target_id = int(call.data.split("_")[1])
-    if call.fromuser.id != target_id:
-        return await call.answer("Эта кнопка не для вас!", show_alert=True)
+    if call.from_user.id != target_id:
+        return await call.answer("Не для вас!", show_alert=True)
     
     chat_id = call.message.chat.id
     u_cache = spam_cache.get(chat_id, {}).get(target_id)
@@ -283,8 +279,7 @@ async def captcha_verify(call: CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("check_"))
 async def check_invites(call: CallbackQuery):
     target_id = int(call.data.split("_")[1])
-    if call.fromuser.id != target_id:
-        return await call.answer("Это не ваша кнопка!", show_alert=True)
+    if call.from_user.id != target_id: return await call.answer("Не ваша кнопка!", show_alert=True)
         
     settings = await db.get_group_settings(call.message.chat.id)
     req = settings[0] if settings else 0
@@ -293,19 +288,18 @@ async def check_invites(call: CallbackQuery):
     if current >= req:
         await db.allow_user(target_id, call.message.chat.id)
         await call.message.delete()
-        await call.answer("Доступ разрешен! Можете писать.", show_alert=True)
+        await call.answer("Доступ разрешен!", show_alert=True)
     else:
-        await call.answer(f"Вы добавили только {current} из {req}!", show_alert=True)
+        await call.answer(f"Только {current} из {req}!", show_alert=True)
 
 @router.callback_query(F.data.startswith("release_"))
 async def release_user(call: CallbackQuery, bot: Bot):
     try:
         member = await bot.get_chat_member(call.message.chat.id, call.from_user.id)
-        if member.status not in [ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR]:
-            return await call.answer("Эта кнопка доступна только Владельцу и Админам!", show_alert=True)
+        if member.status not in [ChatMemberStatus.CREATOR, ChatMemberStatus.ADMINISTRATOR]: return await call.answer("Только для Владельца и Админов!", show_alert=True)
     except: return
         
     target_id = int(call.data.split("_")[1])
     await db.allow_user(target_id, call.message.chat.id)
     await call.message.delete()
-    await call.answer("Пользователь отпущен! Теперь он может писать.", show_alert=True)
+    await call.answer("Пользователь отпущен!", show_alert=True)
