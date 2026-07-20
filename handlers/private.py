@@ -1,7 +1,8 @@
 # handlers/private.py
+import html
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.filters import Command, CommandObject
+from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from config import BOT_USERNAME
@@ -21,7 +22,6 @@ def get_main_keyboard(user_id):
     buttons.append([InlineKeyboardButton(text="➕ Добавить в группу", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# Команда /start с удалением старого сообщения
 @router.message(Command("start"))
 async def start_cmd(message: Message, bot: Bot, state: FSMContext):
     await state.clear()
@@ -35,7 +35,6 @@ async def start_cmd(message: Message, bot: Bot, state: FSMContext):
     msg = await message.answer("<b>Ваши группы:</b>", reply_markup=get_main_keyboard(message.from_user.id), parse_mode="HTML")
     db.set_last_menu(message.from_user.id, msg.message_id)
 
-# Апдейт: бот добавлен в группу. Сразу же обновляет меню в ЛС создателя
 @router.my_chat_member()
 async def on_bot_added(event: ChatMemberUpdated, bot: Bot):
     if event.new_chat_member.status in ["administrator", "member"]:
@@ -58,7 +57,6 @@ async def on_bot_added(event: ChatMemberUpdated, bot: Bot):
             except Exception:
                 pass
 
-# Управление группой
 @router.callback_query(F.data.startswith("manage_group:"))
 async def manage_group(callback: CallbackQuery):
     group_id = int(callback.data.split(":")[1])
@@ -67,13 +65,13 @@ async def manage_group(callback: CallbackQuery):
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main")]
     ])
     await callback.message.edit_text("⚙️ Управление модерацией группы:", reply_markup=kb)
+    await callback.answer()
 
-# Кнопка назад в главное меню
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main(callback: CallbackQuery):
     await callback.message.edit_text("<b>Ваши группы:</b>", reply_markup=get_main_keyboard(callback.from_user.id), parse_mode="HTML")
+    await callback.answer()
 
-# Список модераторов
 @router.callback_query(F.data.startswith("group_mods:"))
 async def group_mods(callback: CallbackQuery):
     group_id = int(callback.data.split(":")[1])
@@ -81,21 +79,21 @@ async def group_mods(callback: CallbackQuery):
     
     buttons = []
     for m in moders:
-        # m = (id, group_id, user_id, username, can_mute, can_ban, can_kick)
         buttons.append([InlineKeyboardButton(text=f"👤 {m[3]} (ID: {m[2]})", callback_data=f"edit_mod:{group_id}:{m[2]}")])
         
     buttons.append([InlineKeyboardButton(text="➕ Добавить модератора", callback_data=f"add_mod_prompt:{group_id}")])
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"manage_group:{group_id}")])
     
     await callback.message.edit_text("Список модераторов группы и их права:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
 
-# Запрос ID для добавления модератора
 @router.callback_query(F.data.startswith("add_mod_prompt:"))
 async def add_mod_prompt(callback: CallbackQuery, state: FSMContext):
     group_id = int(callback.data.split(":")[1])
     await state.update_data(group_id=group_id)
     await state.set_state(ModStates.waiting_for_moder_id)
     await callback.message.edit_text("Отправьте Telegram ID пользователя и через пробел его Ник (например: 12345678 Qwerty):")
+    await callback.answer()
 
 @router.message(ModStates.waiting_for_moder_id)
 async def process_add_moder(message: Message, state: FSMContext, bot: Bot):
@@ -107,7 +105,7 @@ async def process_add_moder(message: Message, state: FSMContext, bot: Bot):
         user_id_str, username = message.text.split(maxsplit=1)
         user_id = int(user_id_str)
         db.add_moderator(group_id, user_id, username)
-        msg_text = f"✅ Модератор {username} добавлен!"
+        msg_text = f"✅ Модератор {html.escape(username)} добавлен!"
     except Exception:
         msg_text = "❌ Ошибка. Вводите строго по шаблону: ID Ник"
         
@@ -120,7 +118,6 @@ async def process_add_moder(message: Message, state: FSMContext, bot: Bot):
     msg = await message.answer(msg_text, reply_markup=kb)
     db.set_last_menu(message.from_user.id, msg.message_id)
 
-# Меню изменения прав конкретного модератора
 @router.callback_query(F.data.startswith("edit_mod:"))
 async def edit_mod(callback: CallbackQuery):
     _, group_id, user_id = callback.data.split(":")
@@ -144,9 +141,9 @@ async def edit_mod(callback: CallbackQuery):
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"group_mods:{group_id}")]
     ])
     
-    await callback.message.edit_text(f"Настройка прав для модератора <b>{m[3]}</b>:", reply_markup=kb, parse_mode="HTML")
+    await callback.message.edit_text(f"Настройка прав для модератора <b>{html.escape(m[3])}</b>:", reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
 
-# Переключение прав
 @router.callback_query(F.data.startswith("toggle:"))
 async def toggle_right(callback: CallbackQuery):
     _, right, group_id, user_id = callback.data.split(":")
@@ -154,7 +151,6 @@ async def toggle_right(callback: CallbackQuery):
     
     db.toggle_moderator_right(group_id, user_id, right)
     
-    # Перерисовываем меню
     moders = db.get_moderators(group_id)
     m = next((x for x in moders if x[2] == user_id), None)
     
